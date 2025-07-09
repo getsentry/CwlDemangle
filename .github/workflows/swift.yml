@@ -18,8 +18,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
+            arch: x86_64-swift-linux-musl
+            sdk: x86_64-swift-linux-musl
+            sdk-url: https://download.swift.org/swift-6.1.1-release/static-sdk/swift-6.1.1-RELEASE/swift-6.1.1-RELEASE_static-linux-0.0.1.artifactbundle.tar.gz
+            sdk-checksum: 8a69753e181e40c202465f03bcafcc898070a86817ca0f39fc808f76638e90c2
             artifact-name: cwl-demangle-linux-x86_64
           - os: macos-latest
+            arch: arm64-apple-macosx
             artifact-name: cwl-demangle-macos-arm64
       fail-fast: false
 
@@ -40,11 +45,13 @@ jobs:
           echo "Demangle _TFC3foo3bar3bazfT_S0_ expected $expected was $actual"
           exit 1
         fi
+    - name: Install SDK
+      run: swift sdk install "${{ matrix.sdk-url }}" --checksum "${{ matrix.sdk-checksum }}"
+      if: matrix.sdk != ''
     - name: Build release
-      run: make build
-      if: github.ref_type == 'tag'
+      run: swift build -v -c release $([ -n "${{ matrix.sdk }}" ] && echo "--swift-sdk ${{ matrix.sdk }}")
     - name: Prepare binary for upload
-      run: cp .build/release/cwl-demangle ${{ matrix.artifact-name }}
+      run: cp .build/${{ matrix.arch }}/release/cwl-demangle ${{ matrix.artifact-name }}
       if: github.ref_type == 'tag'
     - name: Release
       uses: softprops/action-gh-release@v2.2.1
