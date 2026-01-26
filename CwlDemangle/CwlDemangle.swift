@@ -41,6 +41,11 @@ public func parseMangledSwiftSymbol<C: Collection>(_ mangled: C, isType: Bool = 
 }
 
 extension SwiftSymbol: CustomStringConvertible {
+	/// Count total nodes in this symbol tree
+	public var nodeCount: Int {
+		return 1 + children.reduce(0) { $0 + $1.nodeCount }
+	}
+
 	/// Overridden method to allow simple printing with default options
 	public var description: String {
 		var printer = SymbolPrinter()
@@ -264,7 +269,7 @@ enum ValueWitnessKind: UInt64, CustomStringConvertible {
 	}
 }
 
-public struct SwiftSymbol {
+public class SwiftSymbol {
 	public let kind: Kind
 	public var children: [SwiftSymbol]
 	public let contents: Contents
@@ -281,26 +286,26 @@ public struct SwiftSymbol {
 		self.contents = contents
 	}
 
-	fileprivate init(kind: Kind, child: SwiftSymbol) {
+	fileprivate convenience init(kind: Kind, child: SwiftSymbol) {
 		self.init(kind: kind, children: [child], contents: .none)
 	}
 
-	fileprivate init(typeWithChildKind: Kind, childChild: SwiftSymbol) {
+	fileprivate convenience init(typeWithChildKind: Kind, childChild: SwiftSymbol) {
 		self.init(kind: .type, children: [SwiftSymbol(kind: typeWithChildKind, children: [childChild])], contents: .none)
 	}
 
-	fileprivate init(typeWithChildKind: Kind, childChildren: [SwiftSymbol]) {
+	fileprivate convenience init(typeWithChildKind: Kind, childChildren: [SwiftSymbol]) {
 		self.init(kind: .type, children: [SwiftSymbol(kind: typeWithChildKind, children: childChildren)], contents: .none)
 	}
 
-	fileprivate init(swiftStdlibTypeKind: Kind, name: String) {
+	fileprivate convenience init(swiftStdlibTypeKind: Kind, name: String) {
 		self.init(kind: .type, children: [SwiftSymbol(kind: swiftStdlibTypeKind, children: [
 			SwiftSymbol(kind: .module, contents: .name(stdlibName)),
 			SwiftSymbol(kind: .identifier, contents: .name(name))
 		])], contents: .none)
 	}
 
-	fileprivate init(swiftBuiltinType: Kind, name: String) {
+	fileprivate convenience init(swiftBuiltinType: Kind, name: String) {
 		self.init(kind: .type, children: [SwiftSymbol(kind: swiftBuiltinType, contents: .name(name))])
 	}
 
@@ -4352,11 +4357,23 @@ fileprivate enum TypePrinting {
 
 // MARK: SymbolPrinter
 
+fileprivate struct PrintCacheKey: Hashable {
+	let nodeId: ObjectIdentifier
+	let asPrefixContext: Bool
+}
+
+fileprivate struct PrintCacheValue {
+	let output: String
+	let returnValue: ObjectIdentifier?
+}
+
 fileprivate struct SymbolPrinter {
 	var target: String
 	var specializationPrefixPrinted: Bool
 	var options: SymbolPrintOptions
 	var hidingCurrentModule: String = ""
+	var printCache: [PrintCacheKey: PrintCacheValue] = [:]
+	var symbolRegistry: [ObjectIdentifier: SwiftSymbol] = [:]
 
 	init(options: SymbolPrintOptions = .default) {
 		self.target = ""
@@ -5376,6 +5393,26 @@ fileprivate struct SymbolPrinter {
 	}
 
 	mutating func printName(_ name: SwiftSymbol, asPrefixContext: Bool = false) -> SwiftSymbol? {
+		let cacheKey = PrintCacheKey(nodeId: ObjectIdentifier(name), asPrefixContext: asPrefixContext)
+		if let cached = printCache[cacheKey] {
+			target.write(cached.output)
+			return cached.returnValue.flatMap { symbolRegistry[$0] }
+		}
+
+		let startPosition = target.count
+		let returnValue = printNameImpl(name, asPrefixContext: asPrefixContext)
+
+		let output = String(target.suffix(target.count - startPosition))
+		printCache[cacheKey] = PrintCacheValue(output: output, returnValue: returnValue.map { ObjectIdentifier($0) })
+
+		if let rv = returnValue {
+			symbolRegistry[ObjectIdentifier(rv)] = rv
+		}
+
+		return returnValue
+	}
+
+	mutating func printNameImpl(_ name: SwiftSymbol, asPrefixContext: Bool = false) -> SwiftSymbol? {
 		switch name.kind {
 		case .accessibleFunctionRecord: target.write(conditional: !options.contains(.shortenThunk), "accessible function runtime record for ")
 		case .accessorAttachedMacroExpansion: return printMacro(name: name, asPrefixContext: asPrefixContext, label: "accessor")
