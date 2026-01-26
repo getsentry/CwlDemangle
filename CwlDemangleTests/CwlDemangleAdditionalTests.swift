@@ -131,25 +131,29 @@ class CwlDemangleAdditionalTests: XCTestCase {
 		// Encode to JSON
 		let encoder = JSONEncoder()
 		let jsonData = try encoder.encode(result)
-		let jsonString = String(data: jsonData, encoding: .utf8)!
 
 		// Verify JSON can be parsed
 		let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
 
-		// Verify expected fields are present
+		// Verify all expected fields have correct values
 		XCTAssertEqual(jsonObject["identifier"] as? String, "View")
 		XCTAssertEqual(jsonObject["module"] as? String, "SwiftUI")
 		XCTAssertEqual(jsonObject["type"] as? String, "View")
+		XCTAssertEqual(jsonObject["typeName"] as? String, "View")
 		XCTAssertEqual(jsonObject["name"] as? String, "View")
 		XCTAssertEqual(jsonObject["mangled"] as? String, input)
-		XCTAssertNotNil(jsonObject["description"])
-		XCTAssertNotNil(jsonObject["testName"])
-		XCTAssertNotNil(jsonObject["typeName"])
 
-		// Verify description is the full demangled output
+		// testName should be empty array for this symbol (it's a lazy protocol witness table cache variable)
+		let testName = jsonObject["testName"] as? [String]
+		XCTAssertEqual(testName, [], "testName should be empty array for protocol witness table cache variable")
+
+		// Verify description contains expected content
 		let description = jsonObject["description"] as? String
 		XCTAssertNotNil(description)
 		XCTAssertGreaterThan(description?.count ?? 0, 100000, "Description should be long for this deeply nested type")
+		XCTAssertTrue(description?.contains("lazy protocol witness table cache variable") ?? false)
+		XCTAssertTrue(description?.contains("SwiftUI.HStack") ?? false)
+		XCTAssertTrue(description?.contains("SwiftUI.ForEach") ?? false)
 	}
 
 	/// Test JSON encoding for a simple function symbol
@@ -163,9 +167,18 @@ class CwlDemangleAdditionalTests: XCTestCase {
 		let jsonData = try encoder.encode(result)
 		let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
 
+		// Verify all fields have expected values
 		XCTAssertEqual(jsonObject["identifier"] as? String, "foo")
+		XCTAssertEqual(jsonObject["name"] as? String, "foo")
 		XCTAssertEqual(jsonObject["module"] as? String, "main")
+		XCTAssertEqual(jsonObject["type"] as? String, "String")
+		XCTAssertEqual(jsonObject["typeName"] as? String, "String")
 		XCTAssertEqual(jsonObject["mangled"] as? String, input)
+		XCTAssertEqual(jsonObject["description"] as? String, "main.foo() -> Swift.String")
+
+		// testName should contain module and function name
+		let testName = jsonObject["testName"] as? [String]
+		XCTAssertEqual(testName, ["main", "foo"])
 	}
 
 	/// Minimal reproduction: just test the printing step
