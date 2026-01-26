@@ -119,6 +119,55 @@ class CwlDemangleAdditionalTests: XCTestCase {
 		XCTAssertLessThan(elapsed, 1.0, "Demangling deeply nested type took \(elapsed)s, expected < 1s")
 	}
 
+	// MARK: - JSON Encoding Tests
+
+	/// Test that SwiftSymbolResult JSON encoding works correctly for deeply nested types
+	func testJSONEncodingDeeplyNestedType() throws {
+		let input = "_$s7SwiftUI6HStackVyAA7ForEachVySay7SafeApp12GptWidgetRSOV5BlockVGSiAA15ModifiedContentVyAA012_ConditionalM0VyAOyAA7AnyViewVAMyAMyAOyAMyAOyAMyAOyAMyAOyAMyAMyAMyAMyAMyAA6VStackVyAA05TupleP0VyAMyAMyASyAUyAA0P0P0fB0E10typographyyQrs7KeyPathCyAX0F12TypographiesVAX0F10TypographyVGFQOyAMyAA4TextVAA012_EnvironmentT15WritingModifierVySiSgGG_Qo__AMyAwXEAYyQrA4_FQOyA6__Qo_AA14_OpacityEffectVGtGGAA14_PaddingLayoutVGAA19_BackgroundModifierVyAX0hi10BackgroundP0VGG_AMyAMyAA06_ShapeP0VyAA9RectangleVAA5ColorVGAA12_FrameLayoutVGA20_GAMyAMyASyAEySaySi6offset_AH12OrganizationV7elementtGSiAOyAMyAOyAMyAOyAMyAOyAMyAMyAMyAMyAF012OrganizationP033_FC87C9A3FA42E825B2D3403C97F07AECLLVAA01_M13ShapeModifierVyA31_GGA49_GAF0hi5SheetP8Modifier33_D7B757BB09A9C38BAE0FA4E0A0E02DF5LLVyA50_GGA8_ySSSgGGA56_GA58_GA60_GA58_GA62_GA58_GA64_GGGAA16_FlexFrameLayoutVGA20_GtGGAA11_ClipEffectVyAA16RoundedRectangleVGGA23_yAOyAOyAMyAX12OutlinedCardVAA22_MatchedGeometryEffectVySSGGAMyA86_A85_GGA82_GGGA49_GA54_yA91_GGA58_GA94_GA58_GA96_GA58_GA98_GA58_GA100_GA20_GA36_GGA103_GAF011SelfControlhI9Appearing33_426F1EC575A3E7C9A47E01FB3102A0ECLLVGGGACyxGAavAWL"
+
+		let parsed = try parseMangledSwiftSymbol(input)
+		let result = SwiftSymbolResult(symbol: parsed, mangled: input)
+
+		// Encode to JSON
+		let encoder = JSONEncoder()
+		let jsonData = try encoder.encode(result)
+		let jsonString = String(data: jsonData, encoding: .utf8)!
+
+		// Verify JSON can be parsed
+		let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+
+		// Verify expected fields are present
+		XCTAssertEqual(jsonObject["identifier"] as? String, "View")
+		XCTAssertEqual(jsonObject["module"] as? String, "SwiftUI")
+		XCTAssertEqual(jsonObject["type"] as? String, "View")
+		XCTAssertEqual(jsonObject["name"] as? String, "View")
+		XCTAssertEqual(jsonObject["mangled"] as? String, input)
+		XCTAssertNotNil(jsonObject["description"])
+		XCTAssertNotNil(jsonObject["testName"])
+		XCTAssertNotNil(jsonObject["typeName"])
+
+		// Verify description is the full demangled output
+		let description = jsonObject["description"] as? String
+		XCTAssertNotNil(description)
+		XCTAssertGreaterThan(description?.count ?? 0, 100000, "Description should be long for this deeply nested type")
+	}
+
+	/// Test JSON encoding for a simple function symbol
+	func testJSONEncodingSimpleFunction() throws {
+		let input = "$s4main3fooSSyF"  // main.foo() -> String
+
+		let parsed = try parseMangledSwiftSymbol(input)
+		let result = SwiftSymbolResult(symbol: parsed, mangled: input)
+
+		let encoder = JSONEncoder()
+		let jsonData = try encoder.encode(result)
+		let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+
+		XCTAssertEqual(jsonObject["identifier"] as? String, "foo")
+		XCTAssertEqual(jsonObject["module"] as? String, "main")
+		XCTAssertEqual(jsonObject["mangled"] as? String, input)
+	}
+
 	/// Minimal reproduction: just test the printing step
 	func testPerformancePrintingOnly() throws {
 		let input = "_$s7SwiftUI6HStackVyAA7ForEachVySay7SafeApp12GptWidgetRSOV5BlockVGSiAA15ModifiedContentVyAA012_ConditionalM0VyAOyAA7AnyViewVAMyAMyAOyAMyAOyAMyAOyAMyAOyAMyAMyAMyAMyAMyAA6VStackVyAA05TupleP0VyAMyAMyASyAUyAA0P0P0fB0E10typographyyQrs7KeyPathCyAX0F12TypographiesVAX0F10TypographyVGFQOyAMyAA4TextVAA012_EnvironmentT15WritingModifierVySiSgGG_Qo__AMyAwXEAYyQrA4_FQOyA6__Qo_AA14_OpacityEffectVGtGGAA14_PaddingLayoutVGAA19_BackgroundModifierVyAX0hi10BackgroundP0VGG_AMyAMyAA06_ShapeP0VyAA9RectangleVAA5ColorVGAA12_FrameLayoutVGA20_GAMyAMyASyAEySaySi6offset_AH12OrganizationV7elementtGSiAOyAMyAOyAMyAOyAMyAOyAMyAMyAMyAMyAF012OrganizationP033_FC87C9A3FA42E825B2D3403C97F07AECLLVAA01_M13ShapeModifierVyA31_GGA49_GAF0hi5SheetP8Modifier33_D7B757BB09A9C38BAE0FA4E0A0E02DF5LLVyA50_GGA8_ySSSgGGA56_GA58_GA60_GA58_GA62_GA58_GA64_GGGAA16_FlexFrameLayoutVGA20_GtGGAA11_ClipEffectVyAA16RoundedRectangleVGGA23_yAOyAOyAMyAX12OutlinedCardVAA22_MatchedGeometryEffectVySSGGAMyA86_A85_GGA82_GGGA49_GA54_yA91_GGA58_GA94_GA58_GA96_GA58_GA98_GA58_GA100_GA20_GA36_GGA103_GAF011SelfControlhI9Appearing33_426F1EC575A3E7C9A47E01FB3102A0ECLLVGGGACyxGAavAWL"
