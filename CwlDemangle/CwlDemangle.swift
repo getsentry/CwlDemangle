@@ -41,6 +41,11 @@ public func parseMangledSwiftSymbol<C: Collection>(_ mangled: C, isType: Bool = 
 }
 
 extension SwiftSymbol: CustomStringConvertible {
+	/// Count total nodes in this symbol tree
+	public var nodeCount: Int {
+		return 1 + children.reduce(0) { $0 + $1.nodeCount }
+	}
+
 	/// Overridden method to allow simple printing with default options
 	public var description: String {
 		var printer = SymbolPrinter()
@@ -265,6 +270,9 @@ enum ValueWitnessKind: UInt64, CustomStringConvertible {
 }
 
 public struct SwiftSymbol {
+	private static var nextNodeId: UInt64 = 0
+
+	public let nodeId: UInt64
 	public let kind: Kind
 	public var children: [SwiftSymbol]
 	public let contents: Contents
@@ -276,6 +284,8 @@ public struct SwiftSymbol {
 	}
 
 	public init(kind: Kind, children: [SwiftSymbol] = [], contents: Contents = .none) {
+		self.nodeId = SwiftSymbol.nextNodeId
+		SwiftSymbol.nextNodeId += 1
 		self.kind = kind
 		self.children = children
 		self.contents = contents
@@ -4352,11 +4362,22 @@ fileprivate enum TypePrinting {
 
 // MARK: SymbolPrinter
 
+fileprivate struct PrintCacheKey: Hashable {
+	let nodeId: UInt64
+	let asPrefixContext: Bool
+}
+
+fileprivate struct PrintCacheValue {
+	let output: String
+	let returnValue: SwiftSymbol?
+}
+
 fileprivate struct SymbolPrinter {
 	var target: String
 	var specializationPrefixPrinted: Bool
 	var options: SymbolPrintOptions
 	var hidingCurrentModule: String = ""
+	var printCache: [PrintCacheKey: PrintCacheValue] = [:]
 
 	init(options: SymbolPrintOptions = .default) {
 		self.target = ""
@@ -5376,6 +5397,22 @@ fileprivate struct SymbolPrinter {
 	}
 
 	mutating func printName(_ name: SwiftSymbol, asPrefixContext: Bool = false) -> SwiftSymbol? {
+		let cacheKey = PrintCacheKey(nodeId: name.nodeId, asPrefixContext: asPrefixContext)
+		if let cached = printCache[cacheKey] {
+			target.write(cached.output)
+			return cached.returnValue
+		}
+
+		let startPosition = target.count
+		let returnValue = printNameImpl(name, asPrefixContext: asPrefixContext)
+
+		let output = String(target.suffix(target.count - startPosition))
+		printCache[cacheKey] = PrintCacheValue(output: output, returnValue: returnValue)
+
+		return returnValue
+	}
+
+	mutating func printNameImpl(_ name: SwiftSymbol, asPrefixContext: Bool = false) -> SwiftSymbol? {
 		switch name.kind {
 		case .accessibleFunctionRecord: target.write(conditional: !options.contains(.shortenThunk), "accessible function runtime record for ")
 		case .accessorAttachedMacroExpansion: return printMacro(name: name, asPrefixContext: asPrefixContext, label: "accessor")
