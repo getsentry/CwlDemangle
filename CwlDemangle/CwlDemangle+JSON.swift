@@ -33,6 +33,35 @@ public struct SwiftSymbolResult: Encodable {
   }
 }
 
+public struct SwiftSymbolSummaryResult: Encodable {
+  enum CodingKeys: String, CodingKey {
+    case module
+    case testName
+    case typeName
+    case mangled
+  }
+
+  let module: String?
+  let testName: [String]
+  let typeName: String?
+  let mangled: String
+
+  public init(symbol: SwiftSymbol, mangled: String) {
+    self.module = symbol.module
+    self.testName = symbol.testName
+    self.typeName = symbol.typeName
+    self.mangled = mangled
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(module, forKey: .module)
+    try container.encode(testName, forKey: .testName)
+    try container.encode(typeName, forKey: .typeName)
+    try container.encode(mangled, forKey: .mangled)
+  }
+}
+
 extension SwiftSymbol: Hashable {
   public static func == (lhs: SwiftSymbol, rhs: SwiftSymbol) -> Bool {
     lhs.description == rhs.description

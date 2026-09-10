@@ -159,6 +159,31 @@ class CwlDemangleAdditionalTests: XCTestCase {
 		XCTAssertEqual(jsonObject["testName"] as? [String], ["main", "foo"])
 	}
 
+	func testJSONSummaryEncodingOnlyIncludesSummaryFields() throws {
+		let input = "$s4main3fooSSyF"
+		let parsed = try parseMangledSwiftSymbol(input)
+		let result = SwiftSymbolSummaryResult(symbol: parsed, mangled: input)
+
+		let jsonData = try JSONEncoder().encode(result)
+		let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+
+		XCTAssertEqual(Set(jsonObject.keys), Set(["module", "typeName", "testName", "mangled"]))
+		XCTAssertEqual(jsonObject["module"] as? String, "main")
+		XCTAssertEqual(jsonObject["typeName"] as? String, "String")
+		XCTAssertEqual(jsonObject["testName"] as? [String], ["main", "foo"])
+		XCTAssertEqual(jsonObject["mangled"] as? String, input)
+	}
+
+	func testJSONSummaryIncludesNullOptionalFields() throws {
+		let result = SwiftSymbolSummaryResult(symbol: SwiftSymbol(kind: .global), mangled: "")
+		let jsonData = try JSONEncoder().encode(result)
+		let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+
+		XCTAssertEqual(Set(jsonObject.keys), Set(["module", "typeName", "testName", "mangled"]))
+		XCTAssertTrue(jsonObject["module"] is NSNull)
+		XCTAssertTrue(jsonObject["typeName"] is NSNull)
+	}
+
 	func testJSONEncodingAllocator() throws {
 		let input = "$s4main3FooVACycfC"
 
