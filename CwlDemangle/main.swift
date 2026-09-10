@@ -92,6 +92,25 @@ struct BatchResult: Encodable {
     let errors: [Error]
 }
 
+struct SummaryBatchResult: Encodable {
+    let results: [SwiftSymbolSummaryResult]
+    let errors: [BatchResult.Error]
+}
+
+enum BatchJSONOutput: EnumerableFlag {
+    case json
+    case jsonSummary
+
+    static func help(for value: Self) -> ArgumentHelp? {
+        switch value {
+        case .json:
+            return "Output results in JSON format"
+        case .jsonSummary:
+            return "Output module, typeName, testName, and mangled fields as JSON"
+        }
+    }
+}
+
 struct BatchCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "batch",
@@ -104,8 +123,7 @@ struct BatchCommand: ParsableCommand {
     @Option(name: .shortAndLong, help: "Output file (defaults to stdout)")
     var output: String?
 
-    @Flag(name: .long, help: "Output results in JSON format")
-    var json = false
+    @Flag var jsonOutput: BatchJSONOutput?
 
     @Flag(name: .long, help: "Treat inputs as types rather than symbols")
     var isType = false
@@ -119,12 +137,11 @@ struct BatchCommand: ParsableCommand {
     func run() throws {
         let printOptions = parsePrintOptions(options)
         var results: [SwiftSymbolResult] = []
+        var summaryResults: [SwiftSymbolSummaryResult] = []
         var errors: [BatchResult.Error] = []
         var errorCount = 0
         var successCount = 0
-				let jsonEncoder = JSONEncoder()
 
-        // Read input
         let inputContent: String
         if let inputFile = input {
             inputContent = try String(contentsOfFile: inputFile, encoding: .utf8)
@@ -132,25 +149,32 @@ struct BatchCommand: ParsableCommand {
             inputContent = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         }
 
-        let lines = inputContent.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let lines = inputContent
+            .split(whereSeparator: \.isNewline)
+            .lazy
+            .compactMap { line -> String? in
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                return trimmedLine.isEmpty ? nil : trimmedLine
+            }
 
-        for (index, line) in lines.enumerated() {
-            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-
+        for (index, trimmedLine) in lines.enumerated() {
             do {
                 let swiftSymbol = try parseMangledSwiftSymbol(trimmedLine, isType: isType)
                 successCount += 1
 
-                if json {
+                switch jsonOutput {
+                case .some(.json):
                     results.append(SwiftSymbolResult(symbol: swiftSymbol, mangled: trimmedLine))
-                } else {
+                case .some(.jsonSummary):
+                    summaryResults.append(SwiftSymbolSummaryResult(symbol: swiftSymbol, mangled: trimmedLine))
+                case .none:
                     let result = swiftSymbol.print(using: printOptions)
                     print("\(trimmedLine) -> \(result)")
                 }
             } catch {
                 errorCount += 1
 
-                if json {
+                if jsonOutput != nil {
                     errors.append(BatchResult.Error(input: trimmedLine, error: error.localizedDescription))
                 } else {
                     print("Error on line \(index + 1): \(error.localizedDescription)")
@@ -161,10 +185,16 @@ struct BatchCommand: ParsableCommand {
             }
         }
 
-        // Output results
-        if json {
-						let batchResult = BatchResult(results: results, errors: errors)
-            let jsonData = try jsonEncoder.encode(batchResult)
+        if let jsonOutput = jsonOutput {
+            let jsonData: Data
+            switch jsonOutput {
+            case .json:
+                let batchResult = BatchResult(results: results, errors: errors)
+                jsonData = try JSONEncoder().encode(batchResult)
+            case .jsonSummary:
+                let batchResult = SummaryBatchResult(results: summaryResults, errors: errors)
+                jsonData = try JSONEncoder().encode(batchResult)
+            }
             let jsonString = String(data: jsonData, encoding: .utf8) ?? ""
 
             if let outputFile = output {
